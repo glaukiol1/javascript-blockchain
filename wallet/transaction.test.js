@@ -1,7 +1,7 @@
 const { verifySignature } = require('../util/index');
 const Wallet = require('./index');
 const Transaction = require('./transaction');
-
+const { REWARD_INPUT, MINING_REWARD } = require('../config')
 describe('Transaction', ()=>{
     let transaction, senderWallet, recipient, amount;
 
@@ -89,6 +89,86 @@ describe('Transaction', ()=>{
                     expect(errorMock).toHaveBeenCalled()
                 })
             })
+        })
+    })
+    describe('update()', ()=> {
+        let originalSignature, origianlSenderOutput, nextRecipient, nextAmount;
+        describe('and the amount is invalid', ()=>{
+            it('throws an error', ()=>{
+                expect(()=> {
+                    transaction.update({
+                        senderWallet, recipient: 'foo', amount: 999999,
+                    })
+                }).toThrow('Amount exceeds balance')
+              
+            })
+        })
+        describe('and the amount is valid', ()=>{
+            beforeEach(()=>{
+                originalSignature = transaction.input.signature;
+                origianlSenderOutput = transaction.outputMap[senderWallet.publicKey];
+                nextRecipient = 'next-recipient';
+                nextAmount = 50;
+                transaction.update({senderWallet, recipient: nextRecipient, amount: nextAmount})
+            })
+            it('outputs the amount to the next recipient',()=>{
+                expect(transaction.outputMap[nextRecipient]).toEqual(nextAmount)
+            })
+    
+            it('substracts the amount from the original sender ouput amount', ()=>{
+                expect(transaction.outputMap[senderWallet.publicKey])
+                    .toEqual(origianlSenderOutput - nextAmount)
+    
+            })
+    
+            it('maintains a total output value that matches the input amount', ()=> {
+                expect(
+                    Object.values(transaction.outputMap)
+                      .reduce((total, outputAmount) => total + outputAmount)
+                  ).toEqual(transaction.input.amount);
+            })
+            
+            it('re-signs the transaction', ()=> {
+                expect(transaction.input.signature).not.toEqual(originalSignature)
+            })
+
+            describe('and another update for the same recipient', ()=>{
+                let addedAmount;
+
+                beforeEach(()=>{
+                    addedAmount = 80;
+                    transaction.update({
+                        senderWallet, recipient: nextRecipient, amount: addedAmount
+                    })
+                })
+                it('adds to the recipient amount',()=>{
+                    expect(transaction.outputMap[nextRecipient])
+                    .toEqual(nextAmount + addedAmount);
+                })
+
+                it('substracts the amout from the original sender output amount',()=>{
+                    expect(transaction.outputMap[senderWallet.publicKey])
+                        .toEqual(origianlSenderOutput - nextAmount - addedAmount)
+                })
+            })
+        })
+       
+    })
+
+    describe('rewardTransaction()', ()=>{
+        let rewardTransaction, minerWallet;
+
+        beforeEach(()=>{
+            minerWallet = new Wallet();
+            rewardTransaction = Transaction.rewardTransaction({ minerWallet })
+        })
+
+        it('creates a transaction with the reward input', ()=>{
+            expect(rewardTransaction.input).toEqual(REWARD_INPUT)
+        })
+
+        it('creates one transaction for the miner with the `MINING_REWARD`', ()=>{
+            expect(rewardTransaction.outputMap[minerWallet.publicKey]).toEqual(MINING_REWARD)
         })
     })
 })
